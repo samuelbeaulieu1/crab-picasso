@@ -1,14 +1,16 @@
 use std::{
     fs::File, 
-    io::{copy, Cursor}
+    io::{copy, Cursor, Read, BufReader}
 };
 
 use dotenv::dotenv;
+use image::{GenericImageView, RgbImage};
 use openai_api_rust::{
     OpenAI,
     Auth,
 };
 use reqwest;
+use uuid::Uuid;
 
 use crate::error;
 
@@ -28,7 +30,7 @@ pub fn new() -> Picasso {
 }
 
 impl Picasso {
-    fn check_file_type(&self, buf: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    fn check_file_type(&self, buf: &Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
         match infer::get(&buf) {
             Some(filetype) => {
                 match filetype.mime_type() {
@@ -40,6 +42,16 @@ impl Picasso {
         }
     }
 
+    fn save_as_rgba(&self, image_buffer: &[u8]) -> Result<File, Box<dyn std::error::Error>> {
+        let img = image::io::Reader::new(Cursor::new(&image_buffer)).with_guessed_format()?.decode()?;
+
+        let filename = Uuid::new_v4();
+        let path = format!("/tmp/{filename}.png");
+        img.into_rgba8().save(&path)?;
+
+        Ok(File::open(path)?)
+    }
+
     pub fn download_image(&self, url: &str) -> Result<File, Box<dyn std::error::Error>> {
         let resp = reqwest::blocking::get(url)?;
 
@@ -48,16 +60,19 @@ impl Picasso {
         }
 
         let resp_bytes = resp.bytes()?;
-        self.check_file_type(resp_bytes.to_vec())?;
+        self.check_file_type(&resp_bytes.to_vec())?;
 
-        let mut file = tempfile::tempfile()?;
-        let mut content = Cursor::new(resp_bytes);
-        copy(&mut content, &mut file)?;
-
-        Ok(file)
+        Ok(self.save_as_rgba(&resp_bytes)?)
     }
 
     pub fn load_image(&self, path: &str) -> Result<File, Box<dyn std::error::Error>> {
-        todo!()
+        let file = File::open(path)?;
+        let mut buf = Vec::new();
+        let mut buf_reader = BufReader::new(&file);
+        buf_reader.read_to_end(&mut buf)?;
+
+        self.check_file_type(&buf)?;
+
+        Ok(self.save_as_rgba(&buf)?)
     }
 }

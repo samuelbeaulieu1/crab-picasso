@@ -1,4 +1,5 @@
 extern crate dotenv;
+extern crate image;
 
 pub mod picasso;
 pub mod size;
